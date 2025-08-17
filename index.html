@@ -1,1 +1,37 @@
-Hello Raelyaan!
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Raelyaan's Hacker Portfolio</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+</head>
+<body>
+    <div id="desktop">
+        <div class="icon" id="projectsIcon">
+            <img src="assets/icons/projects.png" alt="Projects">
+            <span>Projects</span>
+        </div>
+        <div class="icon" id="resumeIcon">
+            <img src="assets/icons/resume.png" alt="Resume">
+            <span>Resume</span>
+        </div>
+    </div>
+
+    <div id="terminalWindow" class="window">
+        <div id="terminal"></div>
+        <input type="text" id="terminalInput" autofocus>
+    </div>
+
+    <div id="projectWindow" class="window hidden">
+        <iframe src="projects/project1.html" frameborder="0"></iframe>
+    </div>
+
+    <div id="resumeWindow" class="window hidden">
+        <pre id="resumeContent"></pre>
+    </div>
+
+    <script src="js/desktop.js"></script>
+    <script src="js/terminal.js"></script>
+</body>
+</html>
