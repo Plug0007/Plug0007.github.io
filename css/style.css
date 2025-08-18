@@ -1,4 +1,4 @@
-/* Reset */
+/* ========== RESET ========== */
 * {
   margin: 0;
   padding: 0;
@@ -12,9 +12,10 @@ body {
   overflow: hidden;
   height: 100vh;
   user-select: none;
+  color: white;
 }
 
-/* Desktop */
+/* ========== DESKTOP ========== */
 #desktop {
   position: absolute;
   top: 0; left: 0;
@@ -31,7 +32,7 @@ body {
   text-align: center;
   margin: 15px;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, filter 0.2s ease;
 }
 
 .desktop-icon img {
@@ -39,6 +40,7 @@ body {
   height: 64px;
   display: block;
   margin: 0 auto 5px;
+  transition: transform 0.2s ease;
 }
 
 .desktop-icon span {
@@ -48,10 +50,24 @@ body {
 }
 
 .desktop-icon:hover {
-  transform: scale(1.05);
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 6px #1abc9c);
 }
 
-/* Taskbar */
+.desktop-icon:active img {
+  transform: scale(0.9);
+}
+
+/* Selection rectangle (drag on desktop) */
+.selection-rect {
+  position: absolute;
+  border: 1px dashed #1abc9c;
+  background: rgba(26, 188, 156, 0.2);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ========== TASKBAR ========== */
 #taskbar {
   position: fixed;
   bottom: 0;
@@ -59,17 +75,24 @@ body {
   width: 100%;
   height: 35px;
   background: rgba(25, 25, 25, 0.9);
-  color: white;
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 10px;
+  border-top: 1px solid #444;
 }
 
 #menu-button {
   cursor: pointer;
   font-size: 20px;
   padding: 0 10px;
+  transition: background 0.2s;
+}
+
+#menu-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
 }
 
 #task-items {
@@ -79,12 +102,29 @@ body {
   padding-left: 10px;
 }
 
+.task-item {
+  padding: 5px 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.task-item:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.task-item.active {
+  background: #1abc9c;
+  color: black;
+}
+
 #clock {
   font-size: 14px;
   padding-right: 10px;
 }
 
-/* Context Menus */
+/* ========== CONTEXT MENUS ========== */
 .context-menu {
   position: absolute;
   background: #2c2c2c;
@@ -92,26 +132,27 @@ body {
   color: white;
   list-style: none;
   padding: 5px 0;
-  width: 160px;
-  border-radius: 4px;
+  width: 180px;
+  border-radius: 6px;
   z-index: 1000;
   animation: fadeIn 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
 }
 
 .context-menu li {
   padding: 8px 12px;
   cursor: pointer;
+  transition: background 0.2s;
 }
 
 .context-menu li:hover {
-  background: #3a3a3a;
+  background: #1abc9c;
+  color: black;
 }
 
-.hidden {
-  display: none;
-}
+.hidden { display: none; }
 
-/* Window style */
+/* ========== WINDOWS ========== */
 .window {
   position: absolute;
   background: #1e1e1e;
@@ -122,16 +163,20 @@ body {
   height: 350px;
   display: flex;
   flex-direction: column;
-  animation: windowOpen 0.3s ease;
+  animation: windowOpen 0.25s ease;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  resize: both;
+  overflow: hidden;
 }
 
 .window-header {
-  background: #333;
+  background: #2c2c2c;
   padding: 5px 10px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: move;
+  border-bottom: 1px solid #444;
 }
 
 .window-header .title {
@@ -148,6 +193,11 @@ body {
   height: 14px;
   border-radius: 50%;
   cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.window-header .controls div:hover {
+  transform: scale(1.2);
 }
 
 .window-header .controls .close { background: #e74c3c; }
@@ -160,6 +210,7 @@ body {
   overflow: auto;
 }
 
+/* About system content */
 .about-system {
   text-align: center;
   padding: 20px;
@@ -176,20 +227,18 @@ body {
   color: #1abc9c;
 }
 
-
-/* Animations */
+/* ========== ANIMATIONS ========== */
 @keyframes fadeIn {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes windowOpen {
-  from { opacity: 0; transform: scale(0.8); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.8) translateY(-20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 @keyframes windowClose {
   from { opacity: 1; transform: scale(1); }
   to { opacity: 0; transform: scale(0.8); }
 }
-
