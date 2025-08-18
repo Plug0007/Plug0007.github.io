@@ -1,37 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Raelyaan's Hacker Portfolio</title>
-    <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Aadil Asif Badhra — Linux Portfolio</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div id="desktop">
-        <div class="icon" id="projectsIcon">
-            <img src="assets/icons/projects.png" alt="Projects">
-            <span>Projects</span>
-        </div>
-        <div class="icon" id="resumeIcon">
-            <img src="assets/icons/resume.png" alt="Resume">
-            <span>Resume</span>
-        </div>
+  <!-- Taskbar -->
+  <div id="taskbar">
+    <div id="menu-button" title="Applications">☰</div>
+    <div id="task-items"></div>
+    <div id="clock"></div>
+  </div>
+
+  <!-- Desktop -->
+  <div id="desktop" class="no-select">
+    <!-- System-like icons -->
+    <div class="desktop-icon" data-type="system" data-name="Home">
+      <img src="assets/icons/home.png" alt="Home">
+      <span>Home</span>
+    </div>
+    <div class="desktop-icon" data-type="system" data-name="Computer">
+      <img src="assets/icons/computer.png" alt="Computer">
+      <span>Computer</span>
+    </div>
+    <div class="desktop-icon" data-type="system" data-name="Network">
+      <img src="assets/icons/network.png" alt="Network">
+      <span>Network</span>
+    </div>
+    <div class="desktop-icon" data-type="system" data-name="Trash">
+      <img src="assets/icons/trash.png" alt="Trash">
+      <span>Trash</span>
     </div>
 
-    <div id="terminalWindow" class="window">
-        <div id="terminal"></div>
-        <input type="text" id="terminalInput" autofocus>
+    <!-- Portfolio related icons -->
+    <div class="desktop-icon" data-type="folder" data-name="Projects">
+      <img src="assets/icons/folder.png" alt="Projects">
+      <span>Projects</span>
     </div>
-
-    <div id="projectWindow" class="window hidden">
-        <iframe src="projects/project1.html" frameborder="0"></iframe>
+    <div class="desktop-icon" data-type="file" data-name="Resume">
+      <img src="assets/icons/text.png" alt="Resume">
+      <span>Resume</span>
     </div>
-
-    <div id="resumeWindow" class="window hidden">
-        <pre id="resumeContent"></pre>
+    <div class="desktop-icon" data-type="system" data-name="About System">
+      <img src="assets/icons/info.png" alt="About System">
+      <span>About System</span>
     </div>
+    <div class="desktop-icon" data-type="terminal" data-name="Terminal">
+      <img src="assets/icons/terminal.png" alt="Terminal">
+      <span>Terminal</span>
+    </div>
+  </div>
 
-    <script src="js/desktop.js"></script>
-    <script src="js/terminal.js"></script>
+  <!-- Context Menus -->
+  <ul id="desktop-context" class="context-menu hidden">
+    <li data-action="new-folder">📁 New Folder</li>
+    <li data-action="open-terminal">🖥️ Open Terminal</li>
+    <li data-action="refresh">🔄 Refresh</li>
+  </ul>
+
+  <ul id="icon-context" class="context-menu hidden">
+    <li data-action="open">▶ Open</li>
+    <li data-action="rename">✏ Rename</li>
+    <li data-action="delete">🗑 Delete</li>
+  </ul>
+
+  <!-- JS -->
+  <script src="js/desktop.js" defer></script>
+  <script src="js/terminal.js" defer></script>
 </body>
 </html>
