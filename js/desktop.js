@@ -1,559 +1,674 @@
-/* desktop.js
-   Handles desktop icons, context menus, windows, taskbar, drag, animations.
-   Save this file to: js/desktop.js
+/* js/desktop.js
+   Full-featured desktop manager with filesystem persistence (localStorage).
+   Save as: js/desktop.js
 */
 
 (() => {
-  // Utility helpers
+  /* ---------- Config & Helpers ---------- */
+  const STORAGE_KEY = 'rp_fs_v1';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const create = (tag, cls) => {
-    const el = document.createElement(tag);
-    if (cls) el.className = cls;
-    return el;
-  };
+  const create = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+  const nowId = (p = '') => 'id-' + Math.random().toString(36).slice(2) + (p ? '-' + p : '');
 
-  // Configuration: icons and initial fake filesystem mapping
-  const ICONS = [
-    { id: 'home', type: 'system', name: 'Home', icon: 'assets/icons/home.png' },
-    { id: 'computer', type: 'system', name: 'Computer', icon: 'assets/icons/computer.png' },
-    { id: 'network', type: 'system', name: 'Network', icon: 'assets/icons/network.png' },
-    { id: 'trash', type: 'system', name: 'Trash', icon: 'assets/icons/trash.png' },
+  // DOM refs (expected IDs from index.html)
+  const desktopEl = document.getElementById('desktop');
+  const desktopContextEl = document.getElementById('desktop-context');
+  const iconContextEl = document.getElementById('icon-context');
+  const taskItemsEl = document.getElementById('task-items');
+  const clockEl = document.getElementById('clock');
+  const menuBtn = document.getElementById('menu-button');
 
-    { id: 'projects', type: 'folder', name: 'Projects', icon: 'assets/icons/folder.png' },
-    { id: 'resume', type: 'file', name: 'Resume', icon: 'assets/icons/text.png' },
-    { id: 'about', type: 'system', name: 'About System', icon: 'assets/icons/info.png' },
-    { id: 'terminal', type: 'terminal', name: 'Terminal', icon: 'assets/icons/terminal.png' }
-  ];
+  let zIndexCounter = 1000;
+  let windows = []; // {id, node, title, taskItem}
+  let fs = null;    // filesystem object loaded from storage or default
 
-  // simple FS tree used by terminal later; we keep minimal metadata here
-  const FS = {
-    '/': {
-      type: 'folder',
-      children: [
-        { type: 'folder', name: 'Projects', children: [
-            { type: 'file', name: 'project1.html' },
-            { type: 'file', name: 'project2.html' }
-          ]
-        },
-        { type: 'folder', name: 'Docs', children: [
-            { type: 'file', name: 'resume.txt' },
-            { type: 'file', name: 'about.txt' }
-          ]
-        },
-        { type: 'file', name: 'contact.txt' }
-      ]
+  /* ---------- Default filesystem ---------- */
+  const DEFAULT_FS = {
+    Desktop: {
+      "About System": { type: "app", id: nowId('about') },
+      "Projects": { type: "folder", id: nowId('projects'), children: {
+          "project1.html": { type: "file", id: nowId('p1'), url: "projects/project1.html" },
+          "project2.html": { type: "file", id: nowId('p2'), url: "projects/project2.html" }
+        }
+      },
+      "Resume.pdf": { type: "file", id: nowId('resume'), url: "assets/resume.pdf" },
+      "Terminal": { type: "app", id: nowId('term') },
+      "Trash": { type: "trash", id: nowId('trash'), items: {} }
     }
   };
 
-  // load some text files (resume/about/contact) into memory for quicker display
-  const TEXT_CACHE = {
-    '/Docs/about.txt': `Aadil Asif Badhra — Ethical Hacker & Developer
-Location: India
-Summary:
-- Passionate penetration tester and full-stack developer.
-- Experience: Linux, Python, JavaScript, web app pentesting, networking.
-- Projects: Web CTF tools, Linux desktop portfolio, recon automation.
-
-(Replace this text with your real bio or resume content.)`,
-
-    '/contact.txt': `Email: aadil@example.com
-GitHub: github.com/aadil-asif
-LinkedIn: linkedin.com/in/aadil-asif`
-  };
-
-  // Attempt to preload resume.txt from assets (if available)
-  fetch('assets/resume.txt').then(r => r.ok ? r.text() : null).then(txt => {
-    if (txt) TEXT_CACHE['/Docs/resume.txt'] = txt;
-  }).catch(e => {/* ignore */});
-
-  // state
-  let zIndexCounter = 100;
-  const state = {
-    windows: [], // {id, node, title}
-    activeWindow: null
-  };
-
-  // DOM refs
-  const desktop = $('#desktop');
-  const desktopContext = $('#desktop-context');
-  const iconContext = $('#icon-context');
-  const taskItems = $('#task-items');
-  const clockEl = $('#clock');
-  const menuBtn = $('#menu-button');
-
-  // init
-  document.addEventListener('DOMContentLoaded', init);
-
-  function init() {
-    renderIcons();
-    bindDesktopEvents();
-    startClock();
-    // allow double click speed adjustments on some browsers: detect dblclick separately
+  /* ---------- Persistence ---------- */
+  function loadFS() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) { fs = DEFAULT_FS; saveFS(); return; }
+      fs = JSON.parse(raw);
+      // In case older key missing Desktop, merge defaults
+      if (!fs.Desktop) fs.Desktop = DEFAULT_FS.Desktop;
+    } catch (e) {
+      console.error('Failed reading FS, loading default', e);
+      fs = DEFAULT_FS;
+    }
   }
+  function saveFS() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(fs));
+  }
+  function resetFS() { localStorage.removeItem(STORAGE_KEY); loadFS(); renderDesktop(); }
 
-  /* ---------- render icons ---------- */
-  function renderIcons() {
-    desktop.innerHTML = ''; // clear
-    ICONS.forEach(ic => {
-      const d = create('div', 'desktop-icon');
-      d.dataset.id = ic.id;
-      d.dataset.type = ic.type;
-      d.dataset.name = ic.name;
-
+  /* ---------- Render Desktop Icons ---------- */
+  function renderDesktop() {
+    desktopEl.innerHTML = '';
+    const items = fs.Desktop || {};
+    Object.keys(items).forEach(name => {
+      const meta = items[name];
+      const icon = create('div', 'desktop-icon');
+      icon.dataset.name = name;
+      icon.dataset.type = meta.type;
+      icon.dataset.id = meta.id || '';
+      // choose icon src based on type/extension (your assets should match names used)
       const img = create('img');
-      img.src = ic.icon;
-      img.alt = ic.name;
+      const src = chooseIconSrc(name, meta);
+      img.src = src;
+      img.alt = name;
+      const label = create('span');
+      label.textContent = name;
+      icon.appendChild(img);
+      icon.appendChild(label);
 
-      const span = create('span');
-      span.textContent = ic.name;
-
-      d.appendChild(img);
-      d.appendChild(span);
-
-      // click to select, doubleclick to open, right click context
-      d.addEventListener('click', ev => {
+      // Single click selects
+      icon.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        clearSelected();
-        d.classList.add('selected');
+        $$('.desktop-icon.selected').forEach(n => n.classList.remove('selected'));
+        icon.classList.add('selected');
       });
 
-      d.addEventListener('dblclick', ev => {
+      // Double click opens
+      icon.addEventListener('dblclick', (ev) => {
         ev.stopPropagation();
-        openIcon(ic);
+        openItem(name, meta);
       });
 
-      d.addEventListener('contextmenu', ev => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        clearSelected();
-        d.classList.add('selected');
-        showIconContext(ev.pageX, ev.pageY, ic, d);
+      // Right click on icon
+      icon.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        $$('.desktop-icon.selected').forEach(n => n.classList.remove('selected'));
+        icon.classList.add('selected');
+        showIconContext(ev.pageX, ev.pageY, name, meta);
       });
 
-      desktop.appendChild(d);
+      desktopEl.appendChild(icon);
     });
   }
 
-  function clearSelected() {
+  function chooseIconSrc(name, meta) {
+    // defaults - ensure these files exist in assets/icons (file.png folder.png app.png trash.png terminal.png info.png html.png pdf.png)
+    if (meta.type === 'folder') return 'assets/icons/folder.png';
+    if (meta.type === 'trash') return 'assets/icons/trash.png';
+    if (meta.type === 'app') {
+      if (name.toLowerCase().includes('terminal')) return 'assets/icons/terminal.png';
+      if (name.toLowerCase().includes('about')) return 'assets/icons/info.png';
+      return 'assets/icons/app.png';
+    }
+    if (meta.type === 'file') {
+      if ((meta.url||'').endsWith('.pdf')) return 'assets/icons/pdf.png';
+      if ((name||'').toLowerCase().endsWith('.html')) return 'assets/icons/html.png';
+      return 'assets/icons/file.png';
+    }
+    return 'assets/icons/file.png';
+  }
+
+  /* ---------- Context Menus ---------- */
+  function hideAllContexts() {
+    if (desktopContextEl) desktopContextEl.classList.add('hidden');
+    if (iconContextEl) iconContextEl.classList.add('hidden');
     $$('.desktop-icon.selected').forEach(n => n.classList.remove('selected'));
   }
 
-  /* ---------- desktop & icon context menus ---------- */
-  function bindDesktopEvents() {
-    // hide menus on click anywhere
-    document.addEventListener('click', () => {
-      hideContext(desktopContext);
-      hideContext(iconContext);
-      clearSelected();
-    });
-
-    // right-click on desktop
-    desktop.addEventListener('contextmenu', ev => {
-      ev.preventDefault();
-      hideContext(iconContext);
-      if (!ev.target.closest('.desktop-icon')) {
-        showDesktopContext(ev.pageX, ev.pageY);
-      }
-    });
-
-    // desktop context actions
-    desktopContext.addEventListener('click', ev => {
-      const action = ev.target.getAttribute('data-action');
-      if (!action) return;
-      if (action === 'new-folder') newFolderPrompt();
-      if (action === 'open-terminal') openTerminalWindow();
-      if (action === 'refresh') renderIcons();
-      hideContext(desktopContext);
-    });
-
-    // icon context menu actions are handled when shown (see showIconContext)
-
-    // menu button opens terminal for now (can be replaced by app launcher)
-    menuBtn.addEventListener('click', e => {
-      openTerminalWindow();
-      e.stopPropagation();
-    });
-
-    // keyboard shortcuts
-    document.addEventListener('keydown', e => {
-      // Ctrl+T -> terminal
-      if (e.ctrlKey && (e.key === 't' || e.key === 'T')) {
-        e.preventDefault();
-        openTerminalWindow();
-      }
-      // Alt+Tab -> cycle windows
-      if (e.altKey && e.key === 'Tab') {
-        e.preventDefault();
-        cycleWindows();
-      }
-    });
-  }
+  // Desktop right-click
+  desktopEl.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    if (ev.target.closest('.desktop-icon')) return; // handled by icon
+    showDesktopContext(ev.pageX, ev.pageY);
+  });
 
   function showDesktopContext(x, y) {
-    showContextAt(desktopContext, x, y);
-  }
+    if (!desktopContextEl) return;
+    desktopContextEl.style.left = x + 'px';
+    desktopContextEl.style.top = y + 'px';
+    desktopContextEl.classList.remove('hidden');
 
-  function showIconContext(x, y, ic, iconEl) {
-    // icon context menu items: open, rename, delete
-    showContextAt(iconContext, x, y);
-    // ensure click handlers
-    iconContext.onclick = ev => {
+    // add handlers
+    desktopContextEl.onclick = (ev) => {
       const action = ev.target.getAttribute('data-action');
       if (!action) return;
-      if (action === 'open') openIcon(ic);
-      if (action === 'rename') {
-        const name = prompt('Rename to', ic.name);
-        if (name) {
-          ic.name = name;
-          iconEl.querySelector('span').textContent = name;
-        }
-      }
-      if (action === 'delete') {
-        const ok = confirm(`Delete ${ic.name}?`);
-        if (ok) {
-          // remove from ICONS and re-render
-          const idx = ICONS.findIndex(a => a.id === ic.id);
-          if (idx >= 0) {
-            ICONS.splice(idx, 1);
-            renderIcons();
-          }
-        }
-      }
-      hideContext(iconContext);
-    };
-  }
-
-  function showContextAt(menu, x, y) {
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
-    menu.classList.remove('hidden');
-  }
-
-  function hideContext(menu) {
-    if (!menu) return;
-    menu.classList.add('hidden');
-    menu.onclick = null;
-  }
-
-  /* ---------- icon actions (open) ---------- */
-  function openIcon(ic) {
-    if (ic.type === 'folder') {
-      openFolderWindow(ic.name);
-    } else if (ic.type === 'file') {
-      if (ic.id === 'resume') openTextFileWindow('Resume', '/Docs/resume.txt');
-      else openTextFileWindow(ic.name, '/contact.txt');
-    } else if (ic.type === 'system') {
-      if (ic.id === 'about') openTextFileWindow('About System', '/Docs/about.txt');
-      else if (ic.id === 'trash') openTrashWindow();
-      else openInfoWindow(ic.name);
-    } else if (ic.type === 'terminal') {
-      openTerminalWindow();
+      if (action === 'new-folder') promptNewFolder();
+      if (action === 'new-file') promptNewFile();
+      if (action === 'open-terminal') openTerminalWindow();
+      if (action === 'refresh') renderDesktop();
+      if (action === 'reset') { if(confirm('Reset desktop to default?')) { resetFS(); } }
+      desktopContextEl.classList.add('hidden');
     }
   }
 
-  /* ---------- window creation & management ---------- */
-  function createWindow(title, contentNode, options = {}) {
-    const id = 'win-' + Math.random().toString(36).slice(2);
+  function showIconContext(x, y, name, meta) {
+    if (!iconContextEl) return;
+    iconContextEl.style.left = x + 'px';
+    iconContextEl.style.top = y + 'px';
+    iconContextEl.classList.remove('hidden');
+
+    iconContextEl.onclick = (ev) => {
+      const act = ev.target.getAttribute('data-action');
+      if (!act) return;
+      if (act === 'open') openItem(name, meta);
+      else if (act === 'rename') {
+        const nn = prompt('Rename', name);
+        if (nn && nn.trim()) {
+          fs.Desktop[nn.trim()] = meta;
+          delete fs.Desktop[name];
+          saveFS(); renderDesktop();
+        }
+      } else if (act === 'delete') {
+        deleteItemToTrash(name);
+      } else if (act === 'properties') {
+        openProperties(name, meta);
+      }
+      iconContextEl.classList.add('hidden');
+    }
+  }
+
+  // hide context menus on click anywhere
+  document.addEventListener('click', () => hideAllContexts());
+
+  /* ---------- New Folder / File ---------- */
+  function promptNewFolder() {
+    const name = prompt('Folder name:');
+    if (!name) return;
+    if (fs.Desktop[name]) return alert('Name already exists on desktop.');
+    fs.Desktop[name] = { type: 'folder', id: nowId('fld'), children: {} };
+    saveFS(); renderDesktop();
+  }
+  function promptNewFile() {
+    const name = prompt('File name (with extension):', 'new.txt');
+    if (!name) return;
+    if (fs.Desktop[name]) return alert('Name already exists on desktop.');
+    fs.Desktop[name] = { type: 'file', id: nowId('file'), url: null, content: '' };
+    saveFS(); renderDesktop();
+  }
+
+  /* ---------- Delete -> Trash, Restore ---------- */
+  function deleteItemToTrash(name) {
+    if (!fs.Desktop[name]) return;
+    // ensure Trash exists
+    if (!fs.Desktop.Trash || fs.Desktop.Trash.type !== 'trash') {
+      fs.Desktop.Trash = { type: 'trash', id: nowId('trash'), items: {} };
+    }
+    fs.Desktop.Trash.items[name] = fs.Desktop[name];
+    delete fs.Desktop[name];
+    saveFS(); renderDesktop();
+    alert(`${name} moved to Trash.`);
+  }
+
+  function emptyTrash() {
+    if (fs.Desktop.Trash) {
+      fs.Desktop.Trash.items = {};
+      saveFS();
+    }
+  }
+
+  function restoreFromTrash(name) {
+    const trash = fs.Desktop.Trash;
+    if (!trash || !trash.items[name]) return;
+    fs.Desktop[name] = trash.items[name];
+    delete trash.items[name];
+    saveFS(); renderDesktop();
+  }
+
+  /* ---------- Open Items: folders, files, apps ---------- */
+  function openItem(name, meta) {
+    if (!meta) meta = fs.Desktop[name];
+    if (!meta) return;
+
+    if (meta.type === 'folder') {
+      openFolderWindow(name, meta);
+    } else if (meta.type === 'file') {
+      openFileWindow(name, meta);
+    } else if (meta.type === 'app') {
+      if (name.toLowerCase().includes('terminal')) openTerminalWindow();
+      else if (name.toLowerCase().includes('about')) openAboutWindow();
+      else openAppWindow(name);
+    } else if (meta.type === 'trash') {
+      openTrashWindow(meta);
+    } else {
+      openAppWindow(name);
+    }
+  }
+
+  /* ---------- Window system (createWindow, taskbar, focus, close, minimize, maximize) ---------- */
+  function createWindow(title, contentNode) {
+    // contentNode can be DOM node or HTML string
+    const id = nowId('win');
     const win = create('div', 'window');
-    win.dataset.id = id;
+    win.dataset.winId = id;
     win.style.zIndex = ++zIndexCounter;
 
-    // header
-    const header = create('div', 'window-header');
+    // header - classes chosen to match many CSS variants
+    const header = create('div', 'titlebar window-header');
     const titleEl = create('div', 'title');
     titleEl.textContent = title;
     const controls = create('div', 'controls');
-    const btnClose = create('div', 'close');
-    const btnMin = create('div', 'minimize');
-    const btnMax = create('div', 'maximize');
-    controls.appendChild(btnMin);
-    controls.appendChild(btnMax);
-    controls.appendChild(btnClose);
-    header.appendChild(titleEl);
-    header.appendChild(controls);
+    const btnMin = create('div', 'win-btn min'); btnMin.title = 'Minimize';
+    const btnMax = create('div', 'win-btn max'); btnMax.title = 'Maximize';
+    const btnClose = create('div', 'win-btn close'); btnClose.title = 'Close';
+    controls.appendChild(btnMin); controls.appendChild(btnMax); controls.appendChild(btnClose);
+    header.appendChild(controls); header.appendChild(titleEl);
 
-    // content
-    const contentWrapper = create('div', 'window-content');
-    if (typeof contentNode === 'string') {
-      contentWrapper.innerHTML = contentNode;
-    } else {
-      contentWrapper.appendChild(contentNode);
-    }
+    const content = create('div', 'content');
+    if (typeof contentNode === 'string') content.innerHTML = contentNode;
+    else if (contentNode instanceof HTMLElement) content.appendChild(contentNode);
 
-    win.appendChild(header);
-    win.appendChild(contentWrapper);
+    win.appendChild(header); win.appendChild(content);
     document.body.appendChild(win);
 
-    // initial position with small offset
-    win.style.left = (100 + state.windows.length * 20) + 'px';
-    win.style.top = (80 + state.windows.length * 20) + 'px';
+    // position cascade
+    const offset = windows.length * 18;
+    win.style.left = (120 + offset) + 'px';
+    win.style.top = (80 + offset) + 'px';
 
-    // store
-    state.windows.push({ id, node: win, title });
-    addTaskbarEntry({ id, title });
+    // add to windows list and taskbar
+    const taskItem = create('div', 'task-item');
+    taskItem.dataset.winId = id;
+    taskItem.textContent = title;
+    taskItemsEl.appendChild(taskItem);
 
-    // focus on create
-    focusWindow(id);
+    windows.push({ id, node: win, title, taskItem });
 
-    // drag by header
+    // focus on click
+    win.addEventListener('mousedown', () => focusWindow(id));
+
+    // controls
+    btnClose.addEventListener('click', (e) => { closeWindow(id); e.stopPropagation(); });
+    btnMin.addEventListener('click', (e) => { minimizeWindow(id); e.stopPropagation(); });
+    btnMax.addEventListener('click', (e) => { toggleMaximize(id); e.stopPropagation(); });
+
+    // taskbar click
+    taskItem.addEventListener('click', () => {
+      const rec = windows.find(w => w.id === id);
+      if (!rec) return;
+      if (rec.node.classList.contains('minimized')) restoreWindow(id);
+      else minimizeWindow(id);
+    });
+
+    // make drag
     makeDraggable(win, header);
 
-    // control buttons
-    btnClose.addEventListener('click', (e) => {
-      closeWindow(id);
-      e.stopPropagation();
-    });
-    btnMin.addEventListener('click', (e) => {
-      minimizeWindow(id);
-      e.stopPropagation();
-    });
-    btnMax.addEventListener('click', (e) => {
-      toggleMaximize(win);
-      e.stopPropagation();
-    });
+    // make resizable (native css resize or custom)
+    win.style.resize = 'both';
+    win.style.overflow = 'auto';
 
-    // focus when clicked
-    win.addEventListener('mousedown', (e) => {
-      focusWindow(id);
-    });
+    // show open animation (if CSS has keyframes)
+    win.style.animation = 'windowOpen .18s ease';
 
-    return { id, win };
+    focusWindow(id);
+    return { id, node: win, title, taskItem };
   }
 
   function focusWindow(id) {
-    const rec = state.windows.find(w => w.id === id);
+    const rec = windows.find(w => w.id === id);
     if (!rec) return;
-    state.activeWindow = id;
-    // bump z-index
+    windows.forEach(w => w.node.classList.remove('focused'));
+    rec.node.classList.add('focused');
+    rec.node.style.display = 'block';
     rec.node.style.zIndex = ++zIndexCounter;
-    // highlight task item
+    // highlight task
     $$('.task-item').forEach(t => t.classList.remove('active'));
-    const ti = $(`.task-item[data-id="${id}"]`);
-    if (ti) ti.classList.add('active');
-    // show if minimized
-    if (rec.node.classList.contains('minimized')) {
-      rec.node.classList.remove('minimized');
-      rec.node.style.display = 'block';
-    }
+    if (rec.taskItem) rec.taskItem.classList.add('active');
   }
 
   function closeWindow(id) {
-    const idx = state.windows.findIndex(w => w.id === id);
+    const idx = windows.findIndex(w => w.id === id);
     if (idx === -1) return;
-    const rec = state.windows[idx];
-    // animate close (add class or keyframe)
-    rec.node.style.animation = 'windowClose 0.22s ease forwards';
-    // remove after animation
+    const rec = windows[idx];
+    // animate close if desired
+    rec.node.style.animation = 'windowClose .18s ease forwards';
     setTimeout(() => {
       rec.node.remove();
-    }, 220);
-    // remove task item
-    const ti = $(`.task-item[data-id="${id}"]`);
-    if (ti) ti.remove();
-    state.windows.splice(idx, 1);
-    if (state.activeWindow === id) state.activeWindow = null;
+    }, 200);
+    if (rec.taskItem) rec.taskItem.remove();
+    windows.splice(idx, 1);
   }
 
   function minimizeWindow(id) {
-    const rec = state.windows.find(w => w.id === id);
+    const rec = windows.find(w => w.id === id);
     if (!rec) return;
+    rec.node.classList.add('minimized'); // CSS should hide minimized or set display: none
     rec.node.style.display = 'none';
-    rec.node.classList.add('minimized');
-    const ti = $(`.task-item[data-id="${id}"]`);
-    if (ti) ti.classList.add('minimized');
+    if (rec.taskItem) rec.taskItem.classList.add('minimized');
   }
 
   function restoreWindow(id) {
-    const rec = state.windows.find(w => w.id === id);
+    const rec = windows.find(w => w.id === id);
     if (!rec) return;
-    rec.node.style.display = 'block';
     rec.node.classList.remove('minimized');
+    rec.node.style.display = 'block';
+    if (rec.taskItem) rec.taskItem.classList.remove('minimized');
     focusWindow(id);
-    const ti = $(`.task-item[data-id="${id}"]`);
-    if (ti) ti.classList.remove('minimized');
   }
 
-  function toggleMaximize(winNode) {
-    if (winNode.dataset.max === '1') {
+  function toggleMaximize(id) {
+    const rec = windows.find(w => w.id === id);
+    if (!rec) return;
+    const n = rec.node;
+    if (n.dataset.max === '1') {
       // restore
-      winNode.style.top = winNode.dataset.prevTop || '80px';
-      winNode.style.left = winNode.dataset.prevLeft || '100px';
-      winNode.style.width = winNode.dataset.prevWidth || '500px';
-      winNode.style.height = winNode.dataset.prevHeight || '350px';
-      winNode.dataset.max = '0';
+      n.style.left = n.dataset.prevLeft || '120px';
+      n.style.top = n.dataset.prevTop || '80px';
+      n.style.width = n.dataset.prevWidth || '';
+      n.style.height = n.dataset.prevHeight || '';
+      n.dataset.max = '0';
     } else {
-      // store prev
-      winNode.dataset.prevTop = winNode.style.top;
-      winNode.dataset.prevLeft = winNode.style.left;
-      winNode.dataset.prevWidth = winNode.style.width;
-      winNode.dataset.prevHeight = winNode.style.height;
-      // maximize
-      winNode.style.top = '0px';
-      winNode.style.left = '0px';
-      winNode.style.width = (window.innerWidth - 2) + 'px';
-      winNode.style.height = (window.innerHeight - 38) + 'px';
-      winNode.dataset.max = '1';
-      winNode.style.zIndex = ++zIndexCounter;
+      // store
+      n.dataset.prevLeft = n.style.left;
+      n.dataset.prevTop = n.style.top;
+      n.dataset.prevWidth = n.style.width;
+      n.dataset.prevHeight = n.style.height;
+      n.style.left = '0px';
+      n.style.top = '0px';
+      n.style.width = (window.innerWidth - 2) + 'px';
+      n.style.height = (window.innerHeight - (taskItemsEl ? taskItemsEl.offsetHeight : 40)) + 'px';
+      n.dataset.max = '1';
+      n.style.zIndex = ++zIndexCounter;
     }
   }
 
-  function addTaskbarEntry(winRec) {
-    const item = create('div', 'task-item');
-    item.dataset.id = winRec.id;
-    item.textContent = winRec.title;
-    taskItems.appendChild(item);
-
-    item.addEventListener('click', () => {
-      const isMin = item.classList.contains('minimized');
-      if (isMin) {
-        restoreWindow(winRec.id);
-        item.classList.remove('minimized');
-      } else {
-        minimizeWindow(winRec.id);
-        item.classList.add('minimized');
-      }
-    });
-  }
-
-  function cycleWindows() {
-    if (!state.windows.length) return;
-    let idx = state.windows.findIndex(w => w.id === state.activeWindow);
-    idx = (idx + 1) % state.windows.length;
-    focusWindow(state.windows[idx].id);
-  }
-
-  /* ---------- draggable helper ---------- */
+  /* ---------- Drag support ---------- */
   function makeDraggable(node, handle) {
-    let dragging = false;
-    let offsetX = 0, offsetY = 0;
-
-    handle.addEventListener('mousedown', (e) => {
+    let dragging = false, offsetX = 0, offsetY = 0;
+    handle.style.cursor = 'grab';
+    handle.addEventListener('mousedown', (ev) => {
       dragging = true;
-      const rect = node.getBoundingClientRect();
-      offsetX = e.clientX - rect.left;
-      offsetY = e.clientY - rect.top;
+      offsetX = ev.clientX - node.getBoundingClientRect().left;
+      offsetY = ev.clientY - node.getBoundingClientRect().top;
       node.style.transition = 'none';
       document.body.style.userSelect = 'none';
+      focusWindow(node.dataset.winId);
     });
-
-    document.addEventListener('mousemove', (e) => {
+    document.addEventListener('mousemove', (ev) => {
       if (!dragging) return;
-      let left = e.clientX - offsetX;
-      let top = e.clientY - offsetY;
-      // confine to viewport
-      left = Math.max(0, Math.min(left, window.innerWidth - 100));
-      top = Math.max(0, Math.min(top, window.innerHeight - 80));
+      if (node.dataset.max === '1') return; // don't drag maximized
+      let left = ev.clientX - offsetX;
+      let top = ev.clientY - offsetY;
+      left = Math.max(0, Math.min(left, window.innerWidth - 60));
+      top = Math.max(0, Math.min(top, window.innerHeight - 60));
       node.style.left = left + 'px';
       node.style.top = top + 'px';
     });
-
     document.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
-      node.style.transition = '';
-      document.body.style.userSelect = '';
+      if (dragging) {
+        dragging = false;
+        node.style.transition = '';
+        document.body.style.userSelect = '';
+      }
     });
   }
 
-  /* ---------- app windows (folder, text, terminal, projects) ---------- */
-  function openFolderWindow(folderName) {
-    // render a folder view (list items)
-    const wrapper = create('div');
+  /* ---------- Folder / File Windows ---------- */
+  function openFolderWindow(name, meta) {
+    // meta.children is object keyed by filename
+    const wrapper = create('div', 'folder-view');
     const grid = create('div', 'folder-grid');
-    // find FS folder
-    const folder = findInFS('/', 'Projects'); // we only built Projects sample
-    // currently show static project links
-    const p1 = create('div', 'folder-item');
-    p1.innerHTML = `<img src="assets/icons/html.png"><span>project1.html</span>`;
-    p1.addEventListener('dblclick', () => openProject('projects/project1.html', 'Project 1'));
-    const p2 = create('div', 'folder-item');
-    p2.innerHTML = `<img src="assets/icons/html.png"><span>project2.html</span>`;
-    p2.addEventListener('dblclick', () => openProject('projects/project2.html', 'Project 2'));
-    grid.appendChild(p1); grid.appendChild(p2);
     wrapper.appendChild(grid);
-    createWindow(folderName, wrapper);
+
+    const children = meta.children || {};
+    Object.keys(children).forEach(fname => {
+      const fm = children[fname];
+      const item = create('div', 'folder-item');
+      const img = create('img');
+      img.src = chooseIconSrc(fname, fm);
+      img.alt = fname;
+      const label = create('div', 'folder-label');
+      label.textContent = fname;
+      item.appendChild(img); item.appendChild(label);
+
+      // double click to open file (if html open iframe, else show content)
+      item.addEventListener('dblclick', () => {
+        if (fm.type === 'file') {
+          if (fm.url && fm.url.endsWith('.html')) openProjectWindow(fm.url, fname);
+          else openTextWindow(fname, fm.content || fm.url || `No preview for ${fname}`);
+        } else if (fm.type === 'folder') {
+          openFolderWindow(fname, fm);
+        }
+      });
+
+      // small context menu within folder (right click)
+      item.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        // simple prompt options
+        const action = prompt(`Action for ${fname}: (open/rename/delete)`);
+        if (action === 'open') item.dispatchEvent(new Event('dblclick'));
+        else if (action === 'rename') {
+          const nn = prompt('Rename to', fname);
+          if (nn && nn.trim()) {
+            meta.children[nn.trim()] = fm;
+            delete meta.children[fname];
+            saveFS();
+            openFolderWindow(name, meta); // re-open as new
+          }
+        } else if (action === 'delete') {
+          // move to desktop trash
+          if (!fs.Desktop.Trash) fs.Desktop.Trash = { type: 'trash', items: {} };
+          fs.Desktop.Trash.items[fname] = fm;
+          delete meta.children[fname];
+          saveFS();
+          alert(`${fname} moved to Trash`);
+          // refresh folder view
+          openFolderWindow(name, meta);
+        }
+      });
+
+      grid.appendChild(item);
+    });
+
+    if (Object.keys(children).length === 0) {
+      const empty = create('div', 'folder-empty'); empty.textContent = '(empty)';
+      wrapper.appendChild(empty);
+    }
+
+    createWindow(name, wrapper);
   }
 
-  function openTextFileWindow(title, path) {
+  function openTextWindow(title, text) {
     const pre = create('pre');
     pre.style.whiteSpace = 'pre-wrap';
-    pre.style.fontFamily = 'ui-monospace, monospace';
-    pre.textContent = TEXT_CACHE[path] || `File not found: ${path}`;
+    pre.style.fontFamily = 'ui-monospace,monospace';
+    pre.textContent = text;
     createWindow(title, pre);
   }
 
-  function openProject(src, title) {
-    const frame = create('iframe');
-    frame.src = src;
-    frame.style.width = '100%';
-    frame.style.height = '100%';
-    frame.style.border = 'none';
-    createWindow(title, frame);
+  function openProjectWindow(src, title) {
+    const iframe = create('iframe');
+    iframe.src = src;
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.border = 'none';
+    createWindow(title, iframe);
   }
 
-  function openInfoWindow(name) {
-    const el = create('div');
-    el.innerHTML = `<h2>${name}</h2><p>This is a simulated Linux-like environment. Replace content in js/desktop.js and assets to customize.</p>`;
-    createWindow(name, el);
-  }
-
-  function openTrashWindow() {
-    const el = create('div');
-    el.innerHTML = `<h3>Trash</h3><p>Trash is empty.</p>`;
-    createWindow('Trash', el);
-  }
-
-  function openTerminalWindow() {
-    // terminal.js will provide a public init function; if not yet loaded create a simple fallback
-    if (typeof initTerminal === 'function') {
-      // create an element and pass to terminal initializer
-      const container = create('div');
-      createWindow('Terminal', container);
-      // find the last created window's content wrapper
-      const last = state.windows[state.windows.length - 1];
-      if (!last) return;
-      const termDiv = last.node.querySelector('.window-content');
-      // call terminal initializer with that content node
-      try {
-        initTerminal(termDiv);
-      } catch (err) {
-        termDiv.textContent = 'Terminal failed to load: ' + err;
-      }
+  function openFileWindow(name, meta) {
+    if (meta.url && meta.url.endsWith('.pdf')) {
+      const iframe = create('iframe');
+      iframe.src = meta.url;
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = 'none';
+      createWindow(name, iframe);
+    } else if (meta.content) {
+      openTextWindow(name, meta.content);
     } else {
-      // fallback simple terminal
-      openTextFileWindow('Terminal', '/Docs/about.txt');
+      openTextWindow(name, `No preview available for ${name}`);
     }
   }
 
-  /* ---------- helpers for FS (minimal) ---------- */
-  function findInFS(base, name) {
-    // very naive lookup for the demo
-    if (base === '/' && name === 'Projects') return FS['/'].children.find(c => c.name === 'Projects');
-    return null;
+  function openAppWindow(name) {
+    createWindow(name, `<div style="padding:12px">App: ${name} (no UI implemented)</div>`);
   }
 
-  /* ---------- taskbar clock ---------- */
+  function openAboutWindow() {
+    const html = `
+      <div class="about-system" style="padding:12px">
+        <img src="assets/icons/computer.png" style="width:80px;height:80px;display:block;margin:0 auto 8px" alt="logo">
+        <h2 style="text-align:center">About This System</h2>
+        <p><strong>User:</strong> Aadil Asif Badhra</p>
+        <p><strong>Role:</strong> Ethical Hacker | Developer | Pentester</p>
+        <p><strong>System:</strong> Linux Portfolio OS</p>
+        <p><strong>Version:</strong> 1.0.0</p>
+      </div>
+    `;
+    createWindow('About System', html);
+  }
+
+  function openTrashWindow(meta) {
+    const wrapper = create('div', 'trash-view');
+    const list = create('ul');
+    (meta && meta.items ? Object.keys(meta.items) : []).forEach(name => {
+      const li = create('li');
+      li.innerHTML = `${name} <button data-name="${name}" class="restore-btn">Restore</button> <button data-name="${name}" class="del-perm-btn">Delete Permanently</button>`;
+      list.appendChild(li);
+    });
+    wrapper.appendChild(list);
+    wrapper.querySelectorAll('.restore-btn').forEach(b => {
+      b.addEventListener('click', (ev) => {
+        const nm = ev.currentTarget.dataset.name;
+        restoreFromTrash(nm);
+      });
+    });
+    wrapper.querySelectorAll('.del-perm-btn').forEach(b => {
+      b.addEventListener('click', (ev) => {
+        const nm = ev.currentTarget.dataset.name;
+        if (confirm(`Permanently delete ${nm}? This cannot be undone.`)) {
+          delete fs.Desktop.Trash.items[nm];
+          saveFS(); renderDesktop();
+        }
+      });
+    });
+    // Add empty-trash button
+    const emptyBtn = create('button'); emptyBtn.textContent = 'Empty Trash';
+    emptyBtn.addEventListener('click', () => {
+      if (confirm('Empty Trash?')) { emptyTrash(); renderDesktop(); }
+    });
+    wrapper.appendChild(emptyBtn);
+    createWindow('Trash', wrapper);
+  }
+
+  /* ---------- Terminal Window wrapper ---------- */
+  function openTerminalWindow() {
+    // If a terminal initializer exists globally, pass content node to it.
+    const win = createWindow('Terminal', create('div'));
+    const last = windows[windows.length - 1];
+    if (!last) return;
+    const contentNode = last.node.querySelector('.content');
+    // If user provided initTerminal(contentNode) in js/terminal.js, call it
+    if (typeof window.initTerminal === 'function') {
+      try {
+        initTerminal(contentNode);
+      } catch (e) {
+        contentNode.textContent = 'Terminal failed to load: ' + e;
+      }
+      return;
+    }
+    // otherwise a simple built-in terminal:
+    const out = create('div'); out.style.height = 'calc(100% - 28px)'; out.style.overflow = 'auto';
+    const input = create('input'); input.style.width = '100%'; input.style.boxSizing = 'border-box';
+    input.placeholder = 'Type "help" and press Enter';
+    contentNode.appendChild(out); contentNode.appendChild(input);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const cmd = input.value.trim(); input.value = '';
+        const line = create('div'); line.textContent = '$ ' + cmd; out.appendChild(line);
+        handleSimpleTerminal(cmd, out);
+        out.scrollTop = out.scrollHeight;
+      }
+    });
+  }
+
+  function handleSimpleTerminal(cmd, out) {
+    if (!cmd) return;
+    const [base, ...rest] = cmd.split(/\s+/);
+    if (base === 'help') out.appendChild(textNode('Commands: help, ls, cat <file>, open <name>, clear'));
+    else if (base === 'ls') out.appendChild(textNode(Object.keys(fs.Desktop).join('  ')));
+    else if (base === 'cat') {
+      const name = rest.join(' ');
+      const meta = fs.Desktop[name];
+      if (meta && meta.type === 'file') {
+        out.appendChild(textNode(meta.content || meta.url || '(no content)'));
+      } else out.appendChild(textNode('No such file: ' + name));
+    } else if (base === 'open') {
+      const name = rest.join(' ');
+      if (fs.Desktop[name]) openItem(name, fs.Desktop[name]);
+      else out.appendChild(textNode('Not found: ' + name));
+    } else if (base === 'clear') out.innerHTML = '';
+    else out.appendChild(textNode('Command not found: ' + base));
+  }
+
+  function textNode(t) { const e = create('div'); e.textContent = t; return e; }
+
+  /* ---------- Utilities for Trash Restore ---------- */
+  function restoreFromTrash(name) {
+    if (!fs.Desktop.Trash || !fs.Desktop.Trash.items[name]) return;
+    const item = fs.Desktop.Trash.items[name];
+    fs.Desktop[name] = item;
+    delete fs.Desktop.Trash.items[name];
+    saveFS(); renderDesktop(); alert(`${name} restored to Desktop.`);
+  }
+
+  /* ---------- Helpers & Initialization ---------- */
+  function openProperties(name, meta) {
+    const html = `<div style="padding:12px"><h3>${name}</h3><p>Type: ${meta.type}</p><p>ID: ${meta.id || 'n/a'}</p></div>`;
+    createWindow('Properties - ' + name, html);
+  }
+
+  // cycle windows (Alt+Tab style)
+  function cycleWindows() {
+    if (windows.length === 0) return;
+    const idx = windows.findIndex(w => w.node.classList.contains('focused'));
+    const next = windows[(idx + 1) % windows.length];
+    if (next) focusWindow(next.id);
+  }
+
+  // keybindings
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey && e.key.toLowerCase() === 't')) { e.preventDefault(); openTerminalWindow(); }
+    if (e.altKey && e.key === 'Tab') { e.preventDefault(); cycleWindows(); }
+  });
+
+  // menu button opens terminal
+  if (menuBtn) menuBtn.addEventListener('click', () => openTerminalWindow());
+
+  // clock
   function startClock() {
-    function tick() {
-      const d = new Date();
-      clockEl.textContent = d.toLocaleString();
-    }
-    tick();
-    setInterval(tick, 1000);
+    if (!clockEl) return;
+    const tick = () => { clockEl.textContent = new Date().toLocaleString(); };
+    tick(); setInterval(tick, 1000);
   }
 
-  /* ---------- small DOM utility to find elements ---------- */
-  function $(sel, root = document) { return root.querySelector(sel); }
-  function $$(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+  /* ---------- Boot ---------- */
+  function init() {
+    loadFS();
+    renderDesktop();
+    startClock();
 
-  // export a few things to window for debugging / terminal usage
-  window._RAELYAAN_DESKTOP = {
-    createWindow,
-    openProject,
-    openTextFileWindow,
-    ICONS,
-    FS
+    // click on desktop clears selection + hides contexts
+    desktopEl.addEventListener('click', () => hideAllContexts());
+
+    // handle desktopContext menu initial load: add extra actions like New File (if present)
+    // If HTML doesn't have "new-file" in desktop-context, user can add it; code supports both.
+  }
+
+  // expose some functions for debugging
+  window.RP_DESKTOP = {
+    saveFS, resetFS, openItem, createWindow, renderDesktop, restoreFromTrash, deleteItemToTrash
   };
+
+  init();
 
 })();
