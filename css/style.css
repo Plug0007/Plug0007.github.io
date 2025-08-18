@@ -160,6 +160,23 @@ body {
   overflow: auto;
 }
 
+.about-system {
+  text-align: center;
+  padding: 20px;
+}
+
+.about-system .about-logo {
+  width: 80px;
+  margin-bottom: 10px;
+}
+
+.about-system h2 {
+  margin: 10px 0;
+  font-size: 22px;
+  color: #1abc9c;
+}
+
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: scale(0.95); }
@@ -175,3 +192,4 @@ body {
   from { opacity: 1; transform: scale(1); }
   to { opacity: 0; transform: scale(0.8); }
 }
+
