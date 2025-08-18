@@ -1,57 +1,177 @@
-body, html {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    width: 100%;
-    background: black;
-    color: #00ff00;
-    font-family: monospace;
-    overflow: hidden;
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
+body {
+  font-family: "Ubuntu", sans-serif;
+  background: url("../assets/wallpaper.jpg") no-repeat center center fixed;
+  background-size: cover;
+  overflow: hidden;
+  height: 100vh;
+  user-select: none;
+}
+
+/* Desktop */
 #desktop {
-    position: relative;
-    width: 100%;
-    height: 100%;
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: calc(100% - 35px);
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  padding: 20px;
 }
 
-.icon {
-    width: 80px;
-    text-align: center;
-    cursor: pointer;
-    color: #00ff00;
-    margin: 10px;
-    display: inline-block;
+.desktop-icon {
+  width: 80px;
+  text-align: center;
+  margin: 15px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
 }
 
-.icon img {
-    width: 64px;
-    height: 64px;
+.desktop-icon img {
+  width: 64px;
+  height: 64px;
+  display: block;
+  margin: 0 auto 5px;
 }
 
+.desktop-icon span {
+  font-size: 13px;
+  color: white;
+  text-shadow: 1px 1px 2px black;
+}
+
+.desktop-icon:hover {
+  transform: scale(1.05);
+}
+
+/* Taskbar */
+#taskbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 35px;
+  background: rgba(25, 25, 25, 0.9);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+}
+
+#menu-button {
+  cursor: pointer;
+  font-size: 20px;
+  padding: 0 10px;
+}
+
+#task-items {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  padding-left: 10px;
+}
+
+#clock {
+  font-size: 14px;
+  padding-right: 10px;
+}
+
+/* Context Menus */
+.context-menu {
+  position: absolute;
+  background: #2c2c2c;
+  border: 1px solid #444;
+  color: white;
+  list-style: none;
+  padding: 5px 0;
+  width: 160px;
+  border-radius: 4px;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.context-menu li {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.context-menu li:hover {
+  background: #3a3a3a;
+}
+
+.hidden {
+  display: none;
+}
+
+/* Window style */
 .window {
-    position: absolute;
-    width: 600px;
-    height: 400px;
-    border: 1px solid #00ff00;
-    background: #111;
-    padding: 10px;
-    resize: both;
-    overflow: auto;
+  position: absolute;
+  background: #1e1e1e;
+  border: 1px solid #555;
+  border-radius: 6px;
+  color: white;
+  width: 500px;
+  height: 350px;
+  display: flex;
+  flex-direction: column;
+  animation: windowOpen 0.3s ease;
 }
 
-.hidden { display: none; }
-
-#terminalWindow input {
-    width: 100%;
-    background: black;
-    color: #00ff00;
-    border: none;
-    outline: none;
-    font-family: monospace;
+.window-header {
+  background: #333;
+  padding: 5px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: move;
 }
 
-#terminalWindow #terminal {
-    height: 350px;
-    overflow-y: auto;
+.window-header .title {
+  font-size: 14px;
+}
+
+.window-header .controls {
+  display: flex;
+  gap: 6px;
+}
+
+.window-header .controls div {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.window-header .controls .close { background: #e74c3c; }
+.window-header .controls .minimize { background: #f1c40f; }
+.window-header .controls .maximize { background: #2ecc71; }
+
+.window-content {
+  flex: 1;
+  padding: 10px;
+  overflow: auto;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes windowOpen {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes windowClose {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.8); }
 }
